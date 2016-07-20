@@ -24,44 +24,6 @@ using namespace std;
 #include <list>
 #include <sys/time.h>
 
-const string usage = "\n"
-  "Usage:\n"
-  "  apriltags_demo [OPTION...] [IMG1 [IMG2...]]\n"
-  "\n"
-  "Options:\n"
-  "  -h  -?          Show help options\n"
-  "  -a              Arduino (send tag ids over serial port)\n"
-  "  -d              Disable graphics\n"
-  "  -t              Timing of tag extraction\n"
-  "  -C <bbxhh>      Tag family (default 36h11)\n"
-  "  -D <id>         Video device ID (if multiple cameras present)\n"
-  "  -F <fx>         Focal length in pixels\n"
-  "  -W <width>      Image width (default 640, availability depends on camera)\n"
-  "  -H <height>     Image height (default 480, availability depends on camera)\n"
-  "  -S <size>       Tag size (square black frame) in meters\n"
-  "  -E <exposure>   Manually set camera exposure (default auto; range 0-10000)\n"
-  "  -G <gain>       Manually set camera gain (default auto; range 0-255)\n"
-  "  -B <brightness> Manually set the camera brightness (default 128; range 0-255)\n"
-  "\n";
-
-const string intro = "\n"
-    "April tags test code\n"
-    "(C) 2012-2014 Massachusetts Institute of Technology\n"
-    "Michael Kaess\n"
-    "\n";
-
-
-#ifndef __APPLE__
-#define EXPOSURE_CONTROL // only works in Linux
-#endif
-
-#ifdef EXPOSURE_CONTROL
-#include <libv4l2.h>
-#include <linux/videodev2.h>
-#include <fcntl.h>
-#include <errno.h>
-#endif
-
 // OpenCV library for easy access to USB camera and drawing of images
 // on screen
 #include "opencv2/opencv.hpp"
@@ -74,14 +36,12 @@ const string intro = "\n"
 #include "AprilTags/Tag36h9.h"
 #include "AprilTags/Tag36h11.h"
 
-// Needed for getopt / command line options processing
-#include <unistd.h>
-extern int optind;
-extern char *optarg;
+
 
 // For Arduino: locally defined serial port access class
 
 const char* windowName = "apriltags_demo";
+
 cv_bridge::CvImagePtr cv_ptr;
 cv::Mat image_new;
 cv::Mat image_gray;
@@ -200,86 +160,6 @@ public:
     }
   }
 
-  // parse command line options to change default behavior
-  void parseOptions(int argc, char* argv[]) {
-    int c;
-    while ((c = getopt(argc, argv, ":h?adtC:F:H:S:W:E:G:B:D:")) != -1) {
-      // Each option character has to be in the string in getopt();
-      // the first colon changes the error character from '?' to ':';
-      // a colon after an option means that there is an extra
-      // parameter to this option; 'W' is a reserved character
-      switch (c) {
-      case 'h':
-      case '?':
-        cout << intro;
-        cout << usage;
-        exit(0);
-        break;
-      case 'a':
-        m_arduino = true;
-        break;
-      case 'd':
-        m_draw = false;
-        break;
-      case 't':
-        m_timing = true;
-        break;
-      case 'C':
-        setTagCodes(optarg);
-        break;
-      case 'F':
-        m_fx = atof(optarg);
-        m_fy = m_fx;
-        break;
-      case 'H':
-        m_height = atoi(optarg);
-        m_py = m_height/2;
-         break;
-      case 'S':
-        m_tagSize = atof(optarg);
-        break;
-      case 'W':
-        m_width = atoi(optarg);
-        m_px = m_width/2;
-        break;
-      case 'E':
-#ifndef EXPOSURE_CONTROL
-        cout << "Error: Exposure option (-E) not available" << endl;
-        exit(1);
-#endif
-        m_exposure = atoi(optarg);
-        break;
-      case 'G':
-#ifndef EXPOSURE_CONTROL
-        cout << "Error: Gain option (-G) not available" << endl;
-        exit(1);
-#endif
-        m_gain = atoi(optarg);
-        break;
-      case 'B':
-#ifndef EXPOSURE_CONTROL
-        cout << "Error: Brightness option (-B) not available" << endl;
-        exit(1);
-#endif
-        m_brightness = atoi(optarg);
-        break;
-      case 'D':
-        m_deviceId = atoi(optarg);
-        break;
-      case ':': // unknown option, from getopt
-        cout << intro;
-        cout << usage;
-        exit(1);
-        break;
-      }
-    }
-
-    if (argc > optind) {
-      for (int i=0; i<argc-optind; i++) {
-        m_imgNames.push_back(argv[optind+i]);
-      }
-    }
-  }
 
   void setup() {
     m_tagDetector = new AprilTags::TagDetector(m_tagCodes);
@@ -289,65 +169,8 @@ public:
       cv::namedWindow(windowName, 1);
     }
 
-    // optional: prepare serial port for communication with Arduino
-    /*
-    if (m_arduino) {
-      m_serial.open("/dev/ttyACM0");
-    }*/
-
   }
 
-  void setupVideo() {
-
-/*
-#ifdef EXPOSURE_CONTROL
-    // manually setting camera exposure settings; OpenCV/v4l1 doesn't
-    // support exposure control; so here we manually use v4l2 before
-    // opening the device via OpenCV; confirmed to work with Logitech
-    // C270; try exposure=20, gain=100, brightness=150
-
-    string video_str = "/dev/video0";
-    video_str[10] = '0' + m_deviceId;
-    int device = v4l2_open(video_str.c_str(), O_RDWR | O_NONBLOCK);
-
-    if (m_exposure >= 0) {
-      // not sure why, but v4l2_set_control() does not work for
-      // V4L2_CID_EXPOSURE_AUTO...
-      struct v4l2_control c;
-      c.id = V4L2_CID_EXPOSURE_AUTO;
-      c.value = 1; // 1=manual, 3=auto; V4L2_EXPOSURE_AUTO fails...
-      if (v4l2_ioctl(device, VIDIOC_S_CTRL, &c) != 0) {
-        cout << "Failed to set... " << strerror(errno) << endl;
-      }
-      cout << "exposure: " << m_exposure << endl;
-      v4l2_set_control(device, V4L2_CID_EXPOSURE_ABSOLUTE, m_exposure*6);
-    }
-    if (m_gain >= 0) {
-      cout << "gain: " << m_gain << endl;
-      v4l2_set_control(device, V4L2_CID_GAIN, m_gain*256);
-    }
-    if (m_brightness >= 0) {
-      cout << "brightness: " << m_brightness << endl;
-      v4l2_set_control(device, V4L2_CID_BRIGHTNESS, m_brightness*256);
-    }
-    v4l2_close(device);
-#endif 
-
-    // find and open a USB camera (built in laptop camera, web cam etc)
-    m_cap = cv::VideoCapture(m_deviceId);
-        if(!m_cap.isOpened()) {
-      cerr << "ERROR: Can't find video device " << m_deviceId << "\n";
-      exit(1);
-    }
-    m_cap.set(CV_CAP_PROP_FRAME_WIDTH, m_width);
-    m_cap.set(CV_CAP_PROP_FRAME_HEIGHT, m_height);
-    cout << "Camera successfully opened (ignore error messages above...)" << endl;
-    cout << "Actual resolution: "
-         << m_cap.get(CV_CAP_PROP_FRAME_WIDTH) << "x"
-         << m_cap.get(CV_CAP_PROP_FRAME_HEIGHT) << endl;
-
-         */ 
-  }//End of Video Setup
 
   void print_detection(AprilTags::TagDetection& detection) const {
     cout << "  Id: " << detection.id
@@ -422,80 +245,7 @@ public:
       //imshow(windowName, image); // OpenCV call
     }
 
-    // optionally send tag information to serial port (e.g. to Arduino)
-    /*
-    if (m_arduino) {
-      if (detections.size() > 0) {
-        // only the first detected tag is sent out for now
-        Eigen::Vector3d translation;
-        Eigen::Matrix3d rotation;
-        detections[0].getRelativeTranslationRotation(m_tagSize, m_fx, m_fy, m_px, m_py,
-                                                     translation, rotation);
-        m_serial.print(detections[0].id);
-        m_serial.print(",");
-        m_serial.print(translation(0));
-        m_serial.print(",");
-        m_serial.print(translation(1));
-        m_serial.print(",");
-        m_serial.print(translation(2));
-        m_serial.print("\n");
-      } else {
-        // no tag detected: tag ID = -1
-        m_serial.print("-1,0.0,0.0,0.0\n");
-      }
-    }*/
-
   }
-
-  // Load and process a single image
-  void loadImages() {
-    cv::Mat image_new;
-    cv::Mat image_gray;
-
-    for (list<string>::iterator it=m_imgNames.begin(); it!=m_imgNames.end(); it++) {
-      //image = cv::imread(*it); // load image with opencv
-      processImage(image_new, image_gray);
-      while (cv::waitKey(100) == -1) {}
-    }
-  }
-
-  // Video or image processing?
-  bool isVideo() {
-    return true;//DUmmy return as no image is taken from video- ROS message dependent
-    //return m_imgNames.empty();
-  }
-
-  // The processing loop where images are retrieved, tags detected,
-  // and information about detections generated
-  void loop() {
-    /*
-    cv::Mat image;
-    cv::Mat image_gray;
-    */
-    int frame = 0;
-    double last_t = tic();
-    while (true) {
-
-      // capture frame - Happens in SUbscribe window
-      //m_cap >> image;
-
-      processImage(image_new, image_gray);
-
-      // print out the frame rate at which image frames are being processed
-      frame++;
-      if (frame % 10 == 0) {
-        double t = tic();
-        cout << "  " << 10./(t-last_t) << " fps" << endl;
-        last_t = t;
-      }
-
-      // exit if any key is pressed
-      if (cv::waitKey(1) >= 0) break;
-
-      ros::Duration(0.1).sleep();
-    }
-  }
-
 }; // Demo
 
 Demo demo;
@@ -518,32 +268,11 @@ int main(int argc, char* argv[]) {
   cv::namedWindow("view");
   cv::namedWindow("next");
   cv::startWindowThread();
-  // process command line options
-  demo.parseOptions(argc, argv);
 
   demo.setup();
   cout << "Initial setup executed"<<endl;
   image_transport::Subscriber sub = it.subscribe("/ardrone/image_raw", 1, imageCallback);
   cout << "Image Subscriber executed"<<endl;
-
-  /*
-  if (demo.isVideo()) {
-    cout << "Processing video" << endl;
-    //ros::Duration(2.0).sleep();
-    // setup image source, window for drawing, serial port...
-    demo.setupVideo();
-
-    // the actual processing loop where tags are detected and visualized
-    //demo.loop();
-
-  } else {
-    cout << "Processing image" << endl;
-    //ros::Duration(2.0).sleep();
-    // process single image
-    //demo.loadImages();
-
-  }
-  */
   ros::spin();
 
   return 0;
