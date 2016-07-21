@@ -219,19 +219,22 @@ public:
     //      m_cap.retrieve(image);
 
     // detect April tags (requires a gray scale image)
+    
     cv::cvtColor(image, image_gray, CV_BGR2GRAY);
+    
     double t0;
     if (m_timing) {
       t0 = tic();
     }
     vector<AprilTags::TagDetection> detections = m_tagDetector->extractTags(image_gray);
+    
     if (m_timing) {
       double dt = tic()-t0;
       cout << "Extracting tags took " << dt << " seconds." << endl;
     }
 
     // print out each detection
-    cout << detections.size() << " tags detected:" << endl;
+    //cout << detections.size() << " tags detected:" << endl;
     for (int i=0; i<detections.size(); i++) {
       print_detection(detections[i]);
     }
@@ -242,31 +245,30 @@ public:
         // also highlight in the image
         detections[i].draw(image);
       }
-      //imshow(windowName, image); // OpenCV call
+      imshow(windowName, image); // OpenCV call
+      cv::waitKey(1);
     }
 
   }
 }; // Demo
 
+/*Create a global object so that the image callback can access its functions*/
 Demo demo;
+
+//Call Back function for camera subsciber 
 void imageCallback(const sensor_msgs::ImageConstPtr& msg){
-cout << "Callback"<<endl;
 cv_ptr = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::BGR8);
-  cv::imshow("view", cv_ptr->image);
-  cv::waitKey(1);
+  //cv::imshow("view", cv_ptr->image);
+  //cv::waitKey(1);
   cv::cvtColor(cv_ptr->image, image_gray, CV_BGR2GRAY);
   demo.processImage(cv_ptr->image, image_gray);
-  //cv::imshow("next", image_gray);
-  cv::waitKey(1);
-  cout<< "end of call back"<<endl;
 }
+
 // here is were everything begins
 int main(int argc, char* argv[]) {
   ros::init(argc, argv, "Tag_Detector");
   ros::NodeHandle nh;
   image_transport::ImageTransport it(nh);
-  cv::namedWindow("view");
-  cv::namedWindow("next");
   cv::startWindowThread();
 
   demo.setup();
